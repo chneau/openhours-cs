@@ -27,6 +27,7 @@ Now:
   </ItemGroup>
 ```
 - `dotnet test` to run tests
+- `dotnet watch test` to run tests when file is modified - the best.
 - Out of context: `dotnet build --configuration Release` to build realease
 - Out of context: `dotnet build --runtime ubuntu.18.04-x64` to build for ubuntu
 
