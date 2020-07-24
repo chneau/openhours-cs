@@ -21,6 +21,7 @@ namespace Chneau.Time
 
         [Theory]
         [InlineData("mo", new int[] { 1 })]
+        [InlineData("mo-mo", new int[] { 1 })]
         [InlineData("mo,mardi", new int[] { 1 })]
         [InlineData("we,fr", new int[] { 3, 5 })]
         [InlineData("we-fr", new int[] { 3, 4, 5 })]

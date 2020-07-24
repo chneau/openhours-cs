@@ -28,28 +28,26 @@ namespace Chneau.Time
                 if (comma.Contains("-"))
                 {
                     var split = comma.Split("-");
-                    if (split.Length == 2 && (DAYS.ContainsKey(split[0]) && DAYS.ContainsKey(split[1])))
+                    if (split.Length != 2) continue;
+                    if (!DAYS.ContainsKey(split[0])) continue;
+                    if (!DAYS.ContainsKey(split[1])) continue;
+                    var from = DAYS.GetValueOrDefault(split[0]);
+                    var to = DAYS.GetValueOrDefault(split[1]);
+                    while (from != to)
                     {
-                        var from = DAYS.GetValueOrDefault(split[0]);
-                        var to = DAYS.GetValueOrDefault(split[1]);
-                        do
-                        {
-                            days.Add(from);
-                            from++;
-                            if (from == 7)
-                            {
-                                from = 0;
-                            }
-                        } while (from != to);
                         days.Add(from);
-                    } // else ignore
+                        from++;
+                        if (from == 7)
+                        {
+                            from = 0;
+                        }
+                    };
+                    days.Add(from);
+                    continue;
                 }
-                else
+                if (DAYS.ContainsKey(comma))
                 {
-                    if (DAYS.ContainsKey(comma))
-                    {
-                        days.Add(DAYS.GetValueOrDefault(comma));
-                    }
+                    days.Add(DAYS.GetValueOrDefault(comma));
                 }
             }
             var sorted = new List<int>(days);
