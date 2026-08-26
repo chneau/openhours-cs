@@ -18,7 +18,7 @@ public struct Bitmask158
 public sealed class OpenHours
 {
     private static readonly Lock _poolLock = new();
-    private static volatile Dictionary<string, OpenHours> _internPool = new(StringComparer.Ordinal);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, OpenHours> _internPool = new(System.Environment.ProcessorCount * 4, 256, StringComparer.Ordinal);
     private const int MinutesPerWeek = 10080;
 
     private static readonly OpenHours _empty = new("", [], default);
@@ -105,14 +105,10 @@ public sealed class OpenHours
                 _fastVal = existing;
                 return existing;
             }
-            var newPool = new Dictionary<string, OpenHours>(_internPool, StringComparer.Ordinal)
-            {
-                [expression] = result
-            };
-            _internPool = newPool;
         }
         _fastKey = expression;
         _fastVal = result;
+        _internPool.TryAdd(expression, result);
         return result;
     }
 
@@ -152,18 +148,11 @@ public sealed class OpenHours
 
         string rawString = expressionSpan.ToString();
         var result = ParseUncached(rawString, rawString.Trim());
-        lock (_poolLock)
+        if (_internPool.TryGetValue(rawString, out var existing))
         {
-            if (_internPool.TryGetValue(rawString, out var existing))
-            {
-                return existing;
-            }
-            var newPool = new Dictionary<string, OpenHours>(_internPool, StringComparer.Ordinal)
-            {
-                [rawString] = result
-            };
-            _internPool = newPool;
+            return existing;
         }
+        _internPool.TryAdd(rawString, result);
         return result;
     }
 
@@ -934,6 +923,17 @@ public sealed class OpenHours
 
 public sealed class OpenHoursJsonConverter : JsonConverter<OpenHours>
 {
+    // Thread-local fast path for the common case of deserializing the same
+    // expression repeatedly (e.g. bulk JSON loads). Bytes of the last decoded
+    // UTF-8 JSON string value are cached so a repeated value skips both the
+    // UTF-8 -> UTF-16 decode and the intern-pool dictionary lookup.
+    [ThreadStatic]
+    private static byte[]? _fastJsonBytes;
+    [ThreadStatic]
+    private static int _fastJsonLen;
+    [ThreadStatic]
+    private static OpenHours? _fastJsonVal;
+
     public override OpenHours? Read(
         ref Utf8JsonReader reader,
         Type typeToConvert,
@@ -947,10 +947,19 @@ public sealed class OpenHoursJsonConverter : JsonConverter<OpenHours>
 
         if (reader.HasValueSequence)
         {
+            // Fallback for multi-segment input: use the string-based path.
             return reader.GetString() is { } expr ? OpenHours.Parse(expr) : null;
         }
 
         var span = reader.ValueSpan;
+
+        // Fast path: same UTF-8 bytes as the previous value.
+        int len = span.Length;
+        if (len == _fastJsonLen && _fastJsonVal is { } cached && _fastJsonBytes is { } buf && span.SequenceEqual(buf.AsSpan(0, len)))
+        {
+            return cached;
+        }
+
         if (span.IsEmpty)
         {
             return OpenHours.Parse("");
@@ -958,7 +967,14 @@ public sealed class OpenHoursJsonConverter : JsonConverter<OpenHours>
 
         Span<char> chars = stackalloc char[span.Length];
         int written = System.Text.Encoding.UTF8.GetChars(span, chars);
-        return OpenHours.Parse(chars[..written]);
+        var result = OpenHours.Parse(chars[..written]);
+
+        // Remember this value for the next read for an O(1) hit.
+        byte[] buf2 = span.ToArray();
+        _fastJsonBytes = buf2;
+        _fastJsonLen = len;
+        _fastJsonVal = result;
+        return result;
     }
 
     public override void Write(

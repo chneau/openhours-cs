@@ -304,6 +304,42 @@ public class OpenHoursTests
     }
 
     [Fact]
+    public void TestJsonConverterRepeatedDeserialization()
+    {
+        // Exercises the thread-local fast path that caches the last decoded
+        // UTF-8 value: ensure correctness across empty, null, and alternating
+        // expressions (which force a cache miss + re-decode each time).
+        var ctx = OpenHoursJsonContext.Default.OpenHours;
+
+        var a = JsonSerializer.Deserialize("\"Mo-Fr 08:00-17:00\"", ctx);
+        Assert.NotNull(a);
+        Assert.Equal("Mo-Fr 08:00-17:00", a.Raw);
+
+        // Same value again -> fast-path hit.
+        var a2 = JsonSerializer.Deserialize("\"Mo-Fr 08:00-17:00\"", ctx);
+        Assert.Same(a, a2);
+
+        // A different expression forces a fresh decode/miss.
+        var b = JsonSerializer.Deserialize("\"Sa 09:00-12:00\"", ctx);
+        Assert.NotNull(b);
+        Assert.Equal("Sa 09:00-12:00", b.Raw);
+        Assert.NotSame(a, b);
+
+        // Back to the first -> hit again, returns the same interned instance.
+        var a3 = JsonSerializer.Deserialize("\"Mo-Fr 08:00-17:00\"", ctx);
+        Assert.Same(a, a3);
+
+        // Empty string.
+        var empty = JsonSerializer.Deserialize("\"\"", ctx);
+        Assert.NotNull(empty);
+        Assert.False(empty.IsOpen(MondayMidnight));
+
+        // Null token.
+        var nil = JsonSerializer.Deserialize<OpenHours?>("null", ctx);
+        Assert.Null(nil);
+    }
+
+    [Fact]
     public void TestRunBenchmarkSuite()
     {
         using var sw = new StringWriter();
