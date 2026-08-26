@@ -48,6 +48,11 @@ public sealed class OpenHours
         _bitmask = bitmask;
     }
 
+    [ThreadStatic]
+    private static string? _fastKey;
+    [ThreadStatic]
+    private static OpenHours? _fastVal;
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static OpenHours From(string? expression) => Parse(expression);
 
@@ -59,6 +64,11 @@ public sealed class OpenHours
             return _empty;
         }
 
+        if (ReferenceEquals(_fastKey, expression) || _fastKey == expression)
+        {
+            return _fastVal!;
+        }
+
         if (ReferenceEquals(expression, "24/7") || expression == "24/7")
         {
             return _alwaysOpen;
@@ -66,6 +76,8 @@ public sealed class OpenHours
 
         if (_internPool.TryGetValue(expression, out var cached))
         {
+            _fastKey = expression;
+            _fastVal = cached;
             return cached;
         }
 
@@ -89,6 +101,8 @@ public sealed class OpenHours
         {
             if (_internPool.TryGetValue(expression, out var existing))
             {
+                _fastKey = expression;
+                _fastVal = existing;
                 return existing;
             }
             var newPool = new Dictionary<string, OpenHours>(_internPool, StringComparer.Ordinal)
@@ -97,6 +111,8 @@ public sealed class OpenHours
             };
             _internPool = newPool;
         }
+        _fastKey = expression;
+        _fastVal = result;
         return result;
     }
 
@@ -718,7 +734,7 @@ public sealed class OpenHours
             return null;
         }
 
-        var (min, subMinute) = GetWeekMinute(dt);
+        var (min, subMinuteTicks) = GetWeekMinute(dt);
         int idx = FindFirstWindowStartingAtOrAfter(min);
         if (idx >= _windows.Length || _windows[idx].Start > min)
         {
@@ -733,7 +749,7 @@ public sealed class OpenHours
             diffMin = (MinutesPerWeek - min) + _windows[0].End;
         }
 
-        return dt.Add(TimeSpan.FromMinutes(diffMin) - subMinute);
+        return dt.AddTicks((long)diffMin * TimeSpan.TicksPerMinute - subMinuteTicks);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -745,7 +761,7 @@ public sealed class OpenHours
             return TimeSpan.Zero;
         }
 
-        var (t, subMinute) = GetWeekMinute(from);
+        var (t, subMinuteTicks) = GetWeekMinute(from);
         int idx = FindFirstWindowStartingAtOrAfter(t);
 
         if (idx < _windows.Length)
@@ -755,39 +771,44 @@ public sealed class OpenHours
             {
                 return TimeSpan.Zero;
             }
-            return TimeSpan.FromMinutes(w.Start - t) - subMinute;
+            return new TimeSpan((long)(w.Start - t) * TimeSpan.TicksPerMinute - subMinuteTicks);
         }
 
-        return TimeSpan.FromMinutes((MinutesPerWeek - t) + _windows[0].Start) - subMinute;
+        return new TimeSpan((long)((MinutesPerWeek - t) + _windows[0].Start) * TimeSpan.TicksPerMinute - subMinuteTicks);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public TimeSpan? GetTimeToOpenForDuration(DateTime from, TimeSpan duration)
     {
         if (_windows.Length == 0) return null;
-        if (duration <= TimeSpan.Zero) return TimeSpan.Zero;
-        if (duration > TimeSpan.FromMinutes(MinutesPerWeek)) return null;
+        long durTicks = duration.Ticks;
+        if (durTicks <= 0) return TimeSpan.Zero;
+        if (durTicks > (long)MinutesPerWeek * TimeSpan.TicksPerMinute) return null;
 
         if (_windows.Length == 1 && _windows[0].Start == 0 && _windows[0].End == MinutesPerWeek)
         {
             return TimeSpan.Zero;
         }
 
-        var (t, subMinute) = GetWeekMinute(from);
-        int reqMin = (int)((duration.Ticks + TimeSpan.TicksPerMinute - 1) / TimeSpan.TicksPerMinute);
+        var (t, subMinuteTicks) = GetWeekMinute(from);
+        int reqMin = (int)((durTicks + TimeSpan.TicksPerMinute - 1) / TimeSpan.TicksPerMinute);
         int startIdx = FindFirstWindowStartingAtOrAfter(t);
 
-        for (int i = startIdx; i < _windows.Length; i++)
+        int n = _windows.Length;
+        bool lastEndsAtWeekEnd = _windows[n - 1].End == MinutesPerWeek;
+        bool firstStartsAtZero = _windows[0].Start == 0;
+
+        for (int i = startIdx; i < n; i++)
         {
             ref readonly var w = ref _windows[i];
-            int effectiveEnd = (i == _windows.Length - 1 && w.End == MinutesPerWeek && _windows[0].Start == 0)
+            int effectiveEnd = (i == n - 1 && lastEndsAtWeekEnd && firstStartsAtZero)
                 ? MinutesPerWeek + _windows[0].End
                 : w.End;
 
             if (t >= w.Start)
             {
-                var remDur = TimeSpan.FromMinutes(effectiveEnd - t) - subMinute;
-                if (remDur >= duration)
+                long remTicks = (long)(effectiveEnd - t) * TimeSpan.TicksPerMinute - subMinuteTicks;
+                if (remTicks >= durTicks)
                 {
                     return TimeSpan.Zero;
                 }
@@ -796,21 +817,21 @@ public sealed class OpenHours
             {
                 if (effectiveEnd - w.Start >= reqMin)
                 {
-                    return TimeSpan.FromMinutes(w.Start - t) - subMinute;
+                    return new TimeSpan((long)(w.Start - t) * TimeSpan.TicksPerMinute - subMinuteTicks);
                 }
             }
         }
 
-        for (int i = 0; i < _windows.Length; i++)
+        for (int i = 0; i < n; i++)
         {
             ref readonly var w = ref _windows[i];
-            int effectiveEnd = (i == _windows.Length - 1 && w.End == MinutesPerWeek && _windows[0].Start == 0)
+            int effectiveEnd = (i == n - 1 && lastEndsAtWeekEnd && firstStartsAtZero)
                 ? MinutesPerWeek + _windows[0].End
                 : w.End;
 
             if (effectiveEnd - w.Start >= reqMin)
             {
-                return TimeSpan.FromMinutes((MinutesPerWeek - t) + w.Start) - subMinute;
+                return new TimeSpan((long)((MinutesPerWeek - t) + w.Start) * TimeSpan.TicksPerMinute - subMinuteTicks);
             }
         }
 
@@ -821,11 +842,11 @@ public sealed class OpenHours
     public DateTime? When(DateTime from, TimeSpan duration)
     {
         var wait = GetTimeToOpenForDuration(from, duration);
-        if (wait == null)
+        if (!wait.HasValue)
         {
             return null;
         }
-        return wait.Value == TimeSpan.Zero ? from : from.Add(wait.Value);
+        return wait.Value == TimeSpan.Zero ? from : from.AddTicks(wait.Value.Ticks);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -837,24 +858,26 @@ public sealed class OpenHours
             return (true, new TimeSpan((long)MinutesPerWeek * TimeSpan.TicksPerMinute));
         }
 
-        var (min, subMinute) = GetWeekMinute(dt);
-        int idx = FindFirstWindowStartingAtOrAfter(min);
-        if (idx < _windows.Length)
+        var (t, subMinuteTicks) = GetWeekMinute(dt);
+        int idx = FindFirstWindowStartingAtOrAfter(t);
+        int n = _windows.Length;
+
+        if (idx < n)
         {
             ref readonly var w = ref _windows[idx];
-            if (w.Start <= min)
+            if (w.Start <= t)
             {
-                int diffMin = w.End - min;
-                if (idx == _windows.Length - 1 && w.End == MinutesPerWeek && _windows[0].Start == 0)
+                int diffMin = w.End - t;
+                if (idx == n - 1 && w.End == MinutesPerWeek && _windows[0].Start == 0)
                 {
-                    diffMin = (MinutesPerWeek - min) + _windows[0].End;
+                    diffMin = (MinutesPerWeek - t) + _windows[0].End;
                 }
-                return (true, new TimeSpan((long)diffMin * TimeSpan.TicksPerMinute - subMinute.Ticks));
+                return (true, new TimeSpan((long)diffMin * TimeSpan.TicksPerMinute - subMinuteTicks));
             }
-            return (false, new TimeSpan((long)(w.Start - min) * TimeSpan.TicksPerMinute - subMinute.Ticks));
+            return (false, new TimeSpan((long)(w.Start - t) * TimeSpan.TicksPerMinute - subMinuteTicks));
         }
 
-        return (false, new TimeSpan((long)((MinutesPerWeek - min) + _windows[0].Start) * TimeSpan.TicksPerMinute - subMinute.Ticks));
+        return (false, new TimeSpan((long)((MinutesPerWeek - t) + _windows[0].Start) * TimeSpan.TicksPerMinute - subMinuteTicks));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -865,42 +888,28 @@ public sealed class OpenHours
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int FindWindowIndex(int t)
-    {
-        int low = 0;
-        int high = _windows.Length - 1;
-        while (low <= high)
-        {
-            int mid = (low + high) >>> 1;
-            ref readonly var w = ref _windows[mid];
-            if (t < w.Start)
-            {
-                high = mid - 1;
-            }
-            else if (t < w.End)
-            {
-                return mid;
-            }
-            else
-            {
-                low = mid + 1;
-            }
-        }
-        return -1;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int FindFirstWindowStartingAtOrAfter(int t)
     {
+        int n = _windows.Length;
+        if (n <= 4)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (_windows[i].End > t) return i;
+            }
+            return n;
+        }
+
         int low = 0;
-        int high = _windows.Length - 1;
-        int result = _windows.Length;
+        int high = n - 1;
+        int result = n;
         while (low <= high)
         {
             int mid = (low + high) >>> 1;
             if (_windows[mid].End > t)
             {
                 result = mid;
+                if (mid == 0) break;
                 high = mid - 1;
             }
             else
@@ -912,12 +921,12 @@ public sealed class OpenHours
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static (int WeekMinute, TimeSpan SubMinute) GetWeekMinute(DateTime dt)
+    private static (int WeekMinute, long SubMinuteTicks) GetWeekMinute(DateTime dt)
     {
         long ticks = dt.Ticks;
         int weekMinute = (int)((ticks / TimeSpan.TicksPerMinute) % MinutesPerWeek);
         long subMinuteTicks = ticks % TimeSpan.TicksPerMinute;
-        return (weekMinute, new TimeSpan(subMinuteTicks));
+        return (weekMinute, subMinuteTicks);
     }
 
     public override string ToString() => _expression;
