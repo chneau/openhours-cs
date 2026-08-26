@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version to publish (e.g. 1.0.0)"
+        required: false
+        default: ""
 
 jobs:
   publish:
@@ -25,7 +31,17 @@ jobs:
         run: dotnet test -c Release
 
       - name: Pack NuGet Package
-        run: dotnet pack -c Release -o ./nupkg /p:PackageVersion=${GITHUB_REF_NAME#v}
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              VERSION="${GITHUB_REF_NAME#v}"
+            else
+              VERSION="1.0.0"
+            fi
+          fi
+          echo "Building package version: $VERSION"
+          dotnet pack -c Release -o ./nupkg /p:PackageVersion="$VERSION"
 
       - name: Push to NuGet.org
         run: |
