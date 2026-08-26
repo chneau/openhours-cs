@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace Chneau.Time;
+namespace Chneau.OpenHours;
 
 public static class OpenHoursBenchmarks
 {

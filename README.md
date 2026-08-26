@@ -25,13 +25,13 @@ A high-performance, zero-allocation C# (.NET 10) parser and interval-math evalua
 ### Installation
 
 ```bash
-dotnet add package Chneau.Time
+dotnet add package Chneau.OpenHours
 ```
 
 ### Usage Example
 
 ```csharp
-using Chneau.Time;
+using Chneau.OpenHours;
 
 // 1. Parse an OSM opening_hours string
 var oh = OpenHours.Parse("Mo-Fr 08:00-12:00, 13:00-17:00; Sa 08:00-12:00");

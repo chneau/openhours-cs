@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Xunit;
 
-namespace Chneau.Time;
+namespace Chneau.OpenHours;
 
 public class OpenHoursTests
 {

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>true</IsPackable>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>Chneau.OpenHours</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>chneau</Authors>
+    <Company>chneau</Company>
+    <Description>High-performance, zero-allocation OpenStreetMap opening_hours parser and evaluator in .NET 10.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/chneau/openhours-cs</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/chneau/openhours-cs</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>openstreetmap;opening-hours;osm;time;schedule;evaluator;zero-allocation;performance</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2" />
+  </ItemGroup>
+</Project>

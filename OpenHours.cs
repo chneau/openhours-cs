@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Chneau.Time;
+namespace Chneau.OpenHours;
 
 [InlineArray(158)]
 public struct Bitmask158
