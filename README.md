@@ -20,6 +20,30 @@ A high-performance, zero-allocation C# (.NET 10) parser and interval-math evalua
 
 ---
 
+## 🧠 Optimizations & Engineering Architecture
+
+The C# (.NET 10) implementation applies several state-of-the-art runtime and JIT-level optimizations:
+
+1. **Dual State Representation & `[InlineArray(158)]`**:
+   - **Disjoint Interval Array (`TimeWindow[]`)**: Flat sorted array of `{ int Start, int End }` minute intervals.
+   - **Contiguous Bitmask Struct**: Employs .NET C# 12 `[InlineArray(158)] struct Bitmask158` (158 × `ulong` = 10,080 bits) embedded directly inside the object payload. This enables zero heap indirection and compiles to single `BTQ` / bit-test instructions for `IsOpen` (~2.0 ns).
+
+2. **Zero-Allocation Stack & Span Parsing**:
+   - Parses expressions directly using `ReadOnlySpan<char>` with `stackalloc OpeningRule[8]` and `stackalloc TimeWindow[32]` buffers.
+   - Character classification uses fast ASCII bitwise arithmetic (`(c0 << 8) | c1` pair matching for day tokens), completely avoiding string allocations during parsing.
+
+3. **Two-Tier Lock-Free Caching Hierarchy**:
+   - **L1 `[ThreadStatic]` Fast Cache**: Caches the last resolved string key and `OpenHours` instance per thread, skipping dictionary lookups for tight loops and consecutive parses.
+   - **L2 Concurrent Dictionary**: Uses `ConcurrentDictionary<string, OpenHours>` with `GetAlternateLookup<ReadOnlySpan<char>>()` to query span inputs without allocating string keys.
+
+4. **$O(\log N)$ Interval Binary Search**:
+   - Fast binary search over the `windows` array for duration calculations (`GetTimeToOpen`, `When`, `NextDur`), unrolled for small window counts.
+
+5. **`[MethodImpl(MethodImplOptions.AggressiveInlining)]`**:
+   - Applied across all hot evaluation paths to eliminate function call overhead and enable downstream JIT optimizations.
+
+---
+
 ## 🚀 Quick Start
 
 ### Installation
