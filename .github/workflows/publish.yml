@@ -43,6 +43,9 @@ jobs:
           echo "Building package version: $VERSION"
           dotnet pack -c Release -o ./nupkg /p:PackageVersion="$VERSION"
 
+      - name: Authenticate to NuGet.org via Trusted Publishing (OIDC)
+        uses: nuget/login-action@v1
+
       - name: Push to NuGet.org
         run: |
           dotnet nuget push ./nupkg/*.nupkg \
