@@ -44,10 +44,14 @@ jobs:
           dotnet pack -c Release -o ./nupkg /p:PackageVersion="$VERSION"
 
       - name: Authenticate to NuGet.org via Trusted Publishing (OIDC)
-        uses: nuget/login-action@v1
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: chneau
 
       - name: Push to NuGet.org
         run: |
           dotnet nuget push ./nupkg/*.nupkg \
+            --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
