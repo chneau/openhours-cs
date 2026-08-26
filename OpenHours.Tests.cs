@@ -151,6 +151,7 @@ public class OpenHoursTests
         using var sw = new StringWriter();
         OpenHoursBenchmarks.RunBenchmarks(sw);
         string output = sw.ToString();
+        Console.WriteLine(output);
         Assert.Contains("Running OpenHours Benchmarks", output);
         Assert.Contains("Stress Test", output);
     }
