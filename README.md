@@ -16,7 +16,8 @@ A high-performance, zero-allocation C# (.NET 10) parser and interval-math evalua
 - **Overnight Shifts**: Full support for shifts spanning midnight (e.g. `Mo 22:00-04:00`, `Su 22:00-04:00`).
 - **Overrides & Exclusions**: Handles `off` / `closed` rules overriding previous rules (e.g. `Mo-Su 00:00-24:00; Tu 12:00-13:00 off`).
 - **Duration Availability**: Find wait times for contiguous tasks of duration $D$ (`GetTimeToOpenForDuration` / `When`).
-- **Source-Generated JSON**: Native `System.Text.Json` converter and `OpenHoursJsonContext` deserializing in **~220 nanoseconds**.
+- **Reflection-free JSON Decode**: High-speed, zero-allocation `DecodeJson(ReadOnlySpan<byte>)` deserializing in **~31 nanoseconds**.
+- **Source-Generated JSON**: Native `System.Text.Json` converter and `OpenHoursJsonContext` for seamless serialization.
 
 ---
 
@@ -28,18 +29,21 @@ The C# (.NET 10) implementation applies several state-of-the-art runtime and JIT
    - **Disjoint Interval Array (`TimeWindow[]`)**: Flat sorted array of `{ int Start, int End }` minute intervals.
    - **Contiguous Bitmask Struct**: Employs .NET C# 12 `[InlineArray(158)] struct Bitmask158` (158 × `ulong` = 10,080 bits) embedded directly inside the object payload. This enables zero heap indirection and compiles to single `BTQ` / bit-test instructions for `IsOpen` (~2.0 ns).
 
-2. **Zero-Allocation Stack & Span Parsing**:
+2. **Reflection-Free JSON Fast Path**:
+   - `DecodeJson(ReadOnlySpan<byte>)` performs direct UTF-8 byte scanning, escape validation, and resolves directly to interned instances via zero-allocation span lookups in **~31 ns**.
+
+3. **Zero-Allocation Stack & Span Parsing**:
    - Parses expressions directly using `ReadOnlySpan<char>` with `stackalloc OpeningRule[8]` and `stackalloc TimeWindow[32]` buffers.
    - Character classification uses fast ASCII bitwise arithmetic (`(c0 << 8) | c1` pair matching for day tokens), completely avoiding string allocations during parsing.
 
-3. **Two-Tier Lock-Free Caching Hierarchy**:
+4. **Two-Tier Lock-Free Caching Hierarchy**:
    - **L1 `[ThreadStatic]` Fast Cache**: Caches the last resolved string key and `OpenHours` instance per thread, skipping dictionary lookups for tight loops and consecutive parses.
    - **L2 Concurrent Dictionary**: Uses `ConcurrentDictionary<string, OpenHours>` with `GetAlternateLookup<ReadOnlySpan<char>>()` to query span inputs without allocating string keys.
 
-4. **$O(\log N)$ Interval Binary Search**:
+5. **$O(\log N)$ Interval Binary Search**:
    - Fast binary search over the `windows` array for duration calculations (`GetTimeToOpen`, `When`, `NextDur`), unrolled for small window counts.
 
-5. **`[MethodImpl(MethodImplOptions.AggressiveInlining)]`**:
+6. **`[MethodImpl(MethodImplOptions.AggressiveInlining)]`**:
    - Applied across all hot evaluation paths to eliminate function call overhead and enable downstream JIT optimizations.
 
 ---

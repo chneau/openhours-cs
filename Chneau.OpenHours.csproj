@@ -9,7 +9,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Chneau.OpenHours</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.2</Version>
     <Authors>chneau</Authors>
     <Company>chneau</Company>
     <Description>High-performance, zero-allocation OpenStreetMap opening_hours parser and evaluator in .NET 10.</Description>

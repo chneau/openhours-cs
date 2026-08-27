@@ -29,6 +29,7 @@ public static class OpenHoursBenchmarks
             oh.IsOpen(start.AddTicks(TimeSpan.TicksPerMinute * (i % 168)));
             oh.GetTimeToOpen(start.AddTicks(TimeSpan.TicksPerHour * (i % 168)));
             OpenHours.Parse(complexExpr);
+            OpenHours.DecodeJson(warmupJson);
             JsonSerializer.Deserialize(warmupJson, OpenHoursJsonContext.Default.OpenHours);
         }
 
@@ -125,7 +126,7 @@ public static class OpenHoursBenchmarks
         sw.Restart();
         for (int i = 0; i < 1000 * benchScale; i++)
         {
-            JsonSerializer.Deserialize(jsonBytes, OpenHoursJsonContext.Default.OpenHours);
+            OpenHours.DecodeJson(jsonBytes);
         }
         sw.Stop();
         writer.WriteLine(

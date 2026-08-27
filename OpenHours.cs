@@ -156,6 +156,67 @@ public sealed class OpenHours
         return result;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static OpenHours? DecodeJson(ReadOnlySpan<byte> utf8Json)
+    {
+        if (utf8Json.Length >= 2 && utf8Json[0] == (byte)'"' && utf8Json[^1] == (byte)'"' && !HasJsonEscape(utf8Json[1..^1]))
+        {
+            var inner = utf8Json[1..^1];
+            if (inner.IsEmpty)
+            {
+                return _empty;
+            }
+            if (_fastKey is { } key && _fastVal is { } val && StringEqualsUtf8(key, inner))
+            {
+                return val;
+            }
+            Span<char> chars = stackalloc char[inner.Length];
+            for (int i = 0; i < inner.Length; i++)
+            {
+                chars[i] = (char)inner[i];
+            }
+            var parsed = Parse(chars);
+            _fastKey = parsed.Raw;
+            _fastVal = parsed;
+            return parsed;
+        }
+
+        return DecodeJsonSlow(utf8Json);
+    }
+
+    private static bool HasJsonEscape(ReadOnlySpan<byte> bytes)
+    {
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            byte b = bytes[i];
+            if (b == (byte)'\\' || b < 0x20)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool StringEqualsUtf8(string str, ReadOnlySpan<byte> utf8)
+    {
+        if (str.Length != utf8.Length) return false;
+        for (int i = 0; i < str.Length; i++)
+        {
+            if ((byte)str[i] != utf8[i]) return false;
+        }
+        return true;
+    }
+
+    private static OpenHours? DecodeJsonSlow(ReadOnlySpan<byte> utf8Json)
+    {
+        var reader = new Utf8JsonReader(utf8Json);
+        if (!reader.Read()) return null;
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.String) return null;
+        var s = reader.GetString();
+        return s is not null ? Parse(s) : null;
+    }
+
     private static OpenHours ParseUncached(string rawExpression, string trimmed)
     {
         Span<OpeningRule> rules = stackalloc OpeningRule[8];

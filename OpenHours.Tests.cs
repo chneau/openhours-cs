@@ -143,6 +143,13 @@ public class OpenHoursTests
         var deserialized = JsonSerializer.Deserialize(json, OpenHoursJsonContext.Default.OpenHours);
         Assert.NotNull(deserialized);
         Assert.Equal(oh.Raw, deserialized.Raw);
+
+        var direct = OpenHours.DecodeJson(System.Text.Encoding.UTF8.GetBytes(json));
+        Assert.NotNull(direct);
+        Assert.Same(oh, direct);
+
+        var escaped = OpenHours.DecodeJson(System.Text.Encoding.UTF8.GetBytes("\"Mo 08:00-12:00\\\" \""));
+        Assert.NotNull(escaped);
     }
 
     [Fact]
