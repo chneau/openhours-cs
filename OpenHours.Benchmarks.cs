@@ -44,7 +44,7 @@ public static class OpenHoursBenchmarks
         long allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc1 = (double)allocDiff / (iterations * 10 * benchScale);
         writer.WriteLine(
-            $"1. IsOpen (100k rolling calls):            {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * 10 * benchScale):F3} us/op, {alloc1:F1} B/op)"
+            $"1. IsOpen (100k rolling calls):            {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * 10 * benchScale):F5} us/op, {alloc1:F1} B/op)"
         );
 
         // 2. Benchmark IsOpen (Pure 1M calls with fixed timestamp)
@@ -58,7 +58,7 @@ public static class OpenHoursBenchmarks
         allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc2 = (double)allocDiff / (1_000_000 * benchScale);
         writer.WriteLine(
-            $"2. IsOpen (1M pure calls):                 {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (1_000_000 * benchScale):F3} us/op, {alloc2:F1} B/op)"
+            $"2. IsOpen (1M pure calls):                 {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (1_000_000 * benchScale):F5} us/op, {alloc2:F1} B/op)"
         );
 
         // 3. Benchmark GetTimeToOpen (10k calls)
@@ -72,7 +72,7 @@ public static class OpenHoursBenchmarks
         allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc3 = (double)allocDiff / (iterations * benchScale);
         writer.WriteLine(
-            $"3. GetTimeToOpen (10k calls):              {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F3} us/op, {alloc3:F1} B/op)"
+            $"3. GetTimeToOpen (10k calls):              {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F5} us/op, {alloc3:F1} B/op)"
         );
 
         // 4. Benchmark GetTimeToOpenForDuration 4h (10k calls)
@@ -86,7 +86,7 @@ public static class OpenHoursBenchmarks
         allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc4 = (double)allocDiff / (iterations * benchScale);
         writer.WriteLine(
-            $"4. GetTimeToOpenForDuration 4h (10k calls):{sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F3} us/op, {alloc4:F1} B/op)"
+            $"4. GetTimeToOpenForDuration 4h (10k calls):{sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F5} us/op, {alloc4:F1} B/op)"
         );
 
         // 5. Benchmark When 4h (10k calls)
@@ -100,7 +100,7 @@ public static class OpenHoursBenchmarks
         allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc5 = (double)allocDiff / (iterations * benchScale);
         writer.WriteLine(
-            $"5. When 4h (10k calls):                    {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F3} us/op, {alloc5:F1} B/op)"
+            $"5. When 4h (10k calls):                    {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F5} us/op, {alloc5:F1} B/op)"
         );
 
         // 6. Benchmark NextDur (10k calls)
@@ -114,7 +114,7 @@ public static class OpenHoursBenchmarks
         allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc6 = (double)allocDiff / (iterations * benchScale);
         writer.WriteLine(
-            $"6. NextDur (10k calls):                    {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F3} us/op, {alloc6:F1} B/op)"
+            $"6. NextDur (10k calls):                    {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F5} us/op, {alloc6:F1} B/op)"
         );
 
         // 7. Benchmark NextDate (10k calls)
@@ -128,7 +128,7 @@ public static class OpenHoursBenchmarks
         allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc7 = (double)allocDiff / (iterations * benchScale);
         writer.WriteLine(
-            $"7. NextDate (10k calls):                   {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F3} us/op, {alloc7:F1} B/op)"
+            $"7. NextDate (10k calls):                   {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (iterations * benchScale):F5} us/op, {alloc7:F1} B/op)"
         );
 
         // 8. Benchmark Parse (Cached 1k calls)
@@ -142,7 +142,7 @@ public static class OpenHoursBenchmarks
         allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc8 = (double)allocDiff / (1000 * benchScale);
         writer.WriteLine(
-            $"8. Parse Cached (1k calls):                {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (1000 * benchScale):F3} us/op, {alloc8:F1} B/op)"
+            $"8. Parse Cached (1k calls):                {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (1000 * benchScale):F5} us/op, {alloc8:F1} B/op)"
         );
 
         // 9. Benchmark JSON Deserialization (1k calls)
@@ -157,7 +157,7 @@ public static class OpenHoursBenchmarks
         allocDiff = GC.GetAllocatedBytesForCurrentThread() - allocStart;
         double alloc9 = (double)allocDiff / (1000 * benchScale);
         writer.WriteLine(
-            $"9. JSON Deserialize (1k calls):            {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (1000 * benchScale):F3} us/op, {alloc9:F1} B/op)"
+            $"9. JSON Deserialize (1k calls):            {sw.ElapsedMilliseconds,4} ms ({sw.Elapsed.TotalMicroseconds / (1000 * benchScale):F5} us/op, {alloc9:F1} B/op)"
         );
 
         // 10. Simulation Stress Test (5,000 unique locations)
