@@ -1,0 +1,9 @@
+{
+  "name": "openhours-cs",
+  "private": true,
+  "scripts": {
+    "build": "dotnet build -c Release",
+    "test": "dotnet test -c Release",
+    "bench": "dotnet run -c Release --project . --bench"
+  }
+}
