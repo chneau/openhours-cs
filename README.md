@@ -1,8 +1,8 @@
 # openhours-cs
 
-A high-performance, zero-allocation C# (.NET 10) parser and interval-math evaluator for OpenStreetMap [`opening_hours`](https://wiki.openstreetmap.org/wiki/Key:opening_hours) specifications.
+A high-performance, zero-allocation C# (.NET 11) parser and interval-math evaluator for OpenStreetMap [`opening_hours`](https://wiki.openstreetmap.org/wiki/Key:opening_hours) specifications.
 
-[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![.NET 11](https://img.shields.io/badge/.NET-11.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -23,7 +23,7 @@ A high-performance, zero-allocation C# (.NET 10) parser and interval-math evalua
 
 ## 🧠 Optimizations & Engineering Architecture
 
-The C# (.NET 10) implementation applies several state-of-the-art runtime and JIT-level optimizations:
+The C# (.NET 11) implementation applies several state-of-the-art runtime and JIT-level optimizations:
 
 1. **Dual State Representation & `[InlineArray(158)]`**:
    - **Disjoint Interval Array (`TimeWindow[]`)**: Flat sorted array of `{ int Start, int End }` minute intervals.
@@ -87,7 +87,7 @@ var (_, nextTransitionDate) = oh.NextDate(monday10am); // 2026-05-18 12:00:00 UT
 
 ---
 
-## 📊 Benchmark Suite (.NET 10 on AMD Ryzen 9)
+## 📊 Benchmark Suite (.NET 11 on AMD Ryzen 9)
 
 | # | Workload | Calls | Latency / Op | Throughput |
 | :--- | :--- | :--- | :--- | :--- |

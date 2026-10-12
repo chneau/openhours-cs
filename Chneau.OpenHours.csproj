@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
@@ -12,7 +12,7 @@
     <Version>1.0.2</Version>
     <Authors>chneau</Authors>
     <Company>chneau</Company>
-    <Description>High-performance, zero-allocation OpenStreetMap opening_hours parser and evaluator in .NET 10.</Description>
+    <Description>High-performance, zero-allocation OpenStreetMap opening_hours parser and evaluator in .NET 11.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/chneau/openhours-cs</PackageProjectUrl>
     <RepositoryUrl>https://github.com/chneau/openhours-cs</RepositoryUrl>
