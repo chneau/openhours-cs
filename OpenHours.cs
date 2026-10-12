@@ -56,6 +56,10 @@ public sealed class OpenHours
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static OpenHours From(string? expression) => Parse(expression);
 
+    // Fast path kept deliberately tiny so the JIT can inline the common
+    // "same expression as last time" case straight into callers (e.g. a tight
+    // parse loop). All of the cold work lives in ParseStringSlow, which the JIT
+    // is told not to inline.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static OpenHours Parse(string? expression)
     {
@@ -69,6 +73,12 @@ public sealed class OpenHours
             return _fastVal!;
         }
 
+        return ParseStringSlow(expression);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static OpenHours ParseStringSlow(string expression)
+    {
         if (ReferenceEquals(expression, "24/7") || expression == "24/7")
         {
             return _alwaysOpen;
@@ -156,29 +166,51 @@ public sealed class OpenHours
         return result;
     }
 
+    // Thread-local memo of the last UTF-8 JSON string payload that was successfully
+    // decoded, stored as the raw escape-free bytes. A repeated payload (the common
+    // bulk-deserialize pattern) is recognised with a single vectorised span compare
+    // and returns the already-interned instance, skipping the escape scan, the
+    // UTF-8 -> UTF-16 transcode and the intern-pool lookup entirely.
+    [ThreadStatic]
+    private static byte[]? _fastUtf8;
+    [ThreadStatic]
+    private static int _fastUtf8Len;
+    [ThreadStatic]
+    private static OpenHours? _fastUtf8Val;
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static OpenHours? DecodeJson(ReadOnlySpan<byte> utf8Json)
     {
-        if (utf8Json.Length >= 2 && utf8Json[0] == (byte)'"' && utf8Json[^1] == (byte)'"' && !HasJsonEscape(utf8Json[1..^1]))
+        if (utf8Json.Length >= 2 && utf8Json[0] == (byte)'"' && utf8Json[^1] == (byte)'"')
         {
             var inner = utf8Json[1..^1];
-            if (inner.IsEmpty)
+            int len = inner.Length;
+            if (len == 0)
             {
                 return _empty;
             }
-            if (_fastKey is { } key && _fastVal is { } val && StringEqualsUtf8(key, inner))
+
+            if (len == _fastUtf8Len && _fastUtf8Val is { } cached
+                && inner.SequenceEqual(_fastUtf8.AsSpan(0, len)))
             {
-                return val;
+                return cached;
             }
-            Span<char> chars = stackalloc char[inner.Length];
-            for (int i = 0; i < inner.Length; i++)
+
+            if (!HasJsonEscape(inner))
             {
-                chars[i] = (char)inner[i];
+                Span<char> chars = stackalloc char[len];
+                for (int i = 0; i < len; i++)
+                {
+                    chars[i] = (char)inner[i];
+                }
+                var parsed = Parse(chars);
+                _fastKey = parsed.Raw;
+                _fastVal = parsed;
+                _fastUtf8 = inner.ToArray();
+                _fastUtf8Len = len;
+                _fastUtf8Val = parsed;
+                return parsed;
             }
-            var parsed = Parse(chars);
-            _fastKey = parsed.Raw;
-            _fastVal = parsed;
-            return parsed;
         }
 
         return DecodeJsonSlow(utf8Json);
@@ -195,16 +227,6 @@ public sealed class OpenHours
             }
         }
         return false;
-    }
-
-    private static bool StringEqualsUtf8(string str, ReadOnlySpan<byte> utf8)
-    {
-        if (str.Length != utf8.Length) return false;
-        for (int i = 0; i < str.Length; i++)
-        {
-            if ((byte)str[i] != utf8[i]) return false;
-        }
-        return true;
     }
 
     private static OpenHours? DecodeJsonSlow(ReadOnlySpan<byte> utf8Json)
@@ -766,7 +788,10 @@ public sealed class OpenHours
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsOpen(DateTime dateTime)
     {
-        if (_windows.Length == 0) return false;
+        // The bitmask and the window array are built together, so the mask is
+        // all-zero exactly when there are no windows. Testing the bit alone is
+        // therefore equivalent to the previous explicit "_windows.Length == 0"
+        // guard and avoids touching the (array-typed) windows field here.
         long totalMinutes = dateTime.Ticks / TimeSpan.TicksPerMinute;
         int weekMinute = (int)(totalMinutes % MinutesPerWeek);
         return (_bitmask[weekMinute >> 6] & (1UL << (weekMinute & 63))) != 0;
@@ -785,8 +810,9 @@ public sealed class OpenHours
         }
 
         var (min, subMinuteTicks) = GetWeekMinute(dt);
+        int n = _windows.Length;
         int idx = FindFirstWindowStartingAtOrAfter(min);
-        if (idx >= _windows.Length || _windows[idx].Start > min)
+        if (idx >= n || _windows[idx].Start > min)
         {
             return null;
         }
@@ -794,7 +820,7 @@ public sealed class OpenHours
         ref readonly var window = ref _windows[idx];
         int diffMin = window.End - min;
 
-        if (idx == _windows.Length - 1 && window.End == MinutesPerWeek && _windows[0].Start == 0)
+        if (idx == n - 1 && window.End == MinutesPerWeek && _windows[0].Start == 0)
         {
             diffMin = (MinutesPerWeek - min) + _windows[0].End;
         }
@@ -812,9 +838,10 @@ public sealed class OpenHours
         }
 
         var (t, subMinuteTicks) = GetWeekMinute(from);
+        int n = _windows.Length;
         int idx = FindFirstWindowStartingAtOrAfter(t);
 
-        if (idx < _windows.Length)
+        if (idx < n)
         {
             ref readonly var w = ref _windows[idx];
             if (w.Start <= t)
@@ -974,8 +1001,11 @@ public sealed class OpenHours
     private static (int WeekMinute, long SubMinuteTicks) GetWeekMinute(DateTime dt)
     {
         long ticks = dt.Ticks;
-        int weekMinute = (int)((ticks / TimeSpan.TicksPerMinute) % MinutesPerWeek);
-        long subMinuteTicks = ticks % TimeSpan.TicksPerMinute;
+        long totalMinutes = ticks / TimeSpan.TicksPerMinute;
+        int weekMinute = (int)(totalMinutes % MinutesPerWeek);
+        // Reuse the quotient instead of a second division by the same constant:
+        // ticks - floor(ticks/TicksPerMinute)*TicksPerMinute == ticks % TicksPerMinute.
+        long subMinuteTicks = ticks - totalMinutes * TimeSpan.TicksPerMinute;
         return (weekMinute, subMinuteTicks);
     }
 
