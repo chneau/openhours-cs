@@ -975,7 +975,19 @@ public sealed class OpenHours
     private const int TblOpenBit = 0x8000;
     private ushort[]? _tbl;
 
+    // Hot accessor kept tiny so the JIT inlines the common "table already
+    // built" case straight into the query methods: one acquire-load plus a
+    // null test, with the (rare, large) construction body pushed out to a
+    // non-inlined builder. Previously every query paid a call to EnsureTbl.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private ushort[] EnsureTbl()
+    {
+        var cached = Volatile.Read(ref _tbl);
+        return cached ?? BuildTbl();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private ushort[] BuildTbl()
     {
         var cached = Volatile.Read(ref _tbl);
         if (cached is not null) return cached;
