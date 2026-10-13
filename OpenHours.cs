@@ -802,8 +802,8 @@ public sealed class OpenHours
         // all-zero exactly when there are no windows. Testing the bit alone is
         // therefore equivalent to the previous explicit "_windows.Length == 0"
         // guard and avoids touching the (array-typed) windows field here.
-        long totalMinutes = dateTime.Ticks / TimeSpan.TicksPerMinute;
-        int weekMinute = (int)(totalMinutes % MinutesPerWeek);
+        ulong totalMinutes = (ulong)dateTime.Ticks / (ulong)TimeSpan.TicksPerMinute;
+        int weekMinute = (int)(totalMinutes % (ulong)MinutesPerWeek);
         return (_bitmask[weekMinute >> 6] & (1UL << (weekMinute & 63))) != 0;
     }
 
@@ -848,20 +848,12 @@ public sealed class OpenHours
         }
 
         var (t, subMinuteTicks) = GetWeekMinute(from);
-        int n = _windows.Length;
-        int idx = FindFirstWindowStartingAtOrAfter(t);
-
-        if (idx < n)
+        int[] tbl = EnsureTbl();
+        if ((_bitmask[t >> 6] & (1UL << (t & 63))) != 0)
         {
-            ref readonly var w = ref _windows[idx];
-            if (w.Start <= t)
-            {
-                return TimeSpan.Zero;
-            }
-            return new TimeSpan((long)(w.Start - t) * TimeSpan.TicksPerMinute - subMinuteTicks);
+            return TimeSpan.Zero;
         }
-
-        return new TimeSpan((long)((MinutesPerWeek - t) + _windows[0].Start) * TimeSpan.TicksPerMinute - subMinuteTicks);
+        return new TimeSpan((long)tbl[t] * TimeSpan.TicksPerMinute - subMinuteTicks);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -946,25 +938,9 @@ public sealed class OpenHours
         }
 
         var (t, subMinuteTicks) = GetWeekMinute(dt);
-        int idx = FindFirstWindowStartingAtOrAfter(t);
-        int n = _windows.Length;
-
-        if (idx < n)
-        {
-            ref readonly var w = ref _windows[idx];
-            if (w.Start <= t)
-            {
-                int diffMin = w.End - t;
-                if (idx == n - 1 && w.End == MinutesPerWeek && _windows[0].Start == 0)
-                {
-                    diffMin = (MinutesPerWeek - t) + _windows[0].End;
-                }
-                return (true, new TimeSpan((long)diffMin * TimeSpan.TicksPerMinute - subMinuteTicks));
-            }
-            return (false, new TimeSpan((long)(w.Start - t) * TimeSpan.TicksPerMinute - subMinuteTicks));
-        }
-
-        return (false, new TimeSpan((long)((MinutesPerWeek - t) + _windows[0].Start) * TimeSpan.TicksPerMinute - subMinuteTicks));
+        int[] tbl = EnsureTbl();
+        bool open = (_bitmask[t >> 6] & (1UL << (t & 63))) != 0;
+        return (open, new TimeSpan((long)tbl[t] * TimeSpan.TicksPerMinute - subMinuteTicks));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -972,6 +948,43 @@ public sealed class OpenHours
     {
         var (isOpen, dur) = NextDur(dt);
         return (isOpen, dt.AddTicks(dur.Ticks));
+    }
+
+    // Lazily built per-minute transition table: tbl[m] = minutes from minute m
+    // to the next schedule boundary. A pure function of _windows, so results are
+    // bit-identical; built on first query so parse-only schedules (the stress
+    // benchmark) pay nothing for it.
+    private int[]? _tbl;
+
+    private int[] EnsureTbl()
+    {
+        var cached = _tbl;
+        if (cached != null) return cached;
+        int n = _windows.Length;
+        var t = new int[MinutesPerWeek];
+        for (int i = 0; i < n; i++)
+        {
+            int s0 = _windows[i].Start, e0 = _windows[i].End;
+            int blockEnd = e0;
+            if (i == n - 1 && e0 == MinutesPerWeek && _windows[0].Start == 0)
+            {
+                blockEnd = MinutesPerWeek + _windows[0].End;
+            }
+            for (int m = s0; m < e0; m++) t[m] = blockEnd - m;
+        }
+        for (int i = 0; i + 1 < n; i++)
+        {
+            int a = _windows[i].End, b = _windows[i + 1].Start;
+            for (int m = a; m < b; m++) t[m] = b - m;
+        }
+        if (n > 0)
+        {
+            int a = _windows[n - 1].End, b = _windows[0].Start;
+            for (int m = a; m < MinutesPerWeek; m++) t[m] = (MinutesPerWeek - m) + b;
+            for (int m = 0; m < b; m++) t[m] = b - m;
+        }
+        _tbl = t;
+        return t;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1011,11 +1024,11 @@ public sealed class OpenHours
     private static (int WeekMinute, long SubMinuteTicks) GetWeekMinute(DateTime dt)
     {
         long ticks = dt.Ticks;
-        long totalMinutes = ticks / TimeSpan.TicksPerMinute;
-        int weekMinute = (int)(totalMinutes % MinutesPerWeek);
-        // Reuse the quotient instead of a second division by the same constant:
-        // ticks - floor(ticks/TicksPerMinute)*TicksPerMinute == ticks % TicksPerMinute.
-        long subMinuteTicks = ticks - totalMinutes * TimeSpan.TicksPerMinute;
+        // Unsigned division: DateTime.Ticks is always >= 0, so this is exact and
+        // lets the JIT use a single multiply-shift rather than sign-corrected ones.
+        ulong totalMinutes = (ulong)ticks / (ulong)TimeSpan.TicksPerMinute;
+        int weekMinute = (int)(totalMinutes % (ulong)MinutesPerWeek);
+        long subMinuteTicks = ticks - (long)totalMinutes * TimeSpan.TicksPerMinute;
         return (weekMinute, subMinuteTicks);
     }
 
