@@ -175,12 +175,19 @@ public sealed class OpenHours
 
         string rawString = expressionSpan.ToString();
         var result = ParseUncached(rawString, rawString.Trim());
-        if (_internPool.TryGetValue(rawString, out var existing))
+        // Publish under _poolLock and re-check: if another thread interned the
+        // same expression concurrently, return the canonical instance rather
+        // than our own (a TryAdd outside the lock can lose the race and leak a
+        // non-canonical duplicate, defeating ReferenceEquals fast paths).
+        lock (_poolLock)
         {
-            return existing;
+            if (_internPool.TryGetValue(rawString, out var existing))
+            {
+                return existing;
+            }
+            _internPool.TryAdd(rawString, result);
+            return result;
         }
-        _internPool.TryAdd(rawString, result);
-        return result;
     }
 
     // The UTF-8 decode memo (last payload bytes + decoded instance) lives in the
@@ -188,6 +195,7 @@ public sealed class OpenHours
     // costs a single ThreadStatic read plus one vectorised span compare, skipping
     // the escape scan, the UTF-8 -> UTF-16 transcode and the intern-pool lookup.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [SkipLocalsInit]
     public static OpenHours? DecodeJson(ReadOnlySpan<byte> utf8Json)
     {
         if (utf8Json.Length >= 2 && utf8Json[0] == (byte)'"' && utf8Json[^1] == (byte)'"')
@@ -249,6 +257,10 @@ public sealed class OpenHours
         return s is not null ? Parse(s) : null;
     }
 
+    // [SkipLocalsInit] is sound here: every stackalloc slot in this method and
+    // the callees it feeds (Bake/SubtractInPlace write each entry before it is
+    // read) is fully initialised before use, so the JIT's zero-init is wasted.
+    [SkipLocalsInit]
     private static OpenHours ParseUncached(string rawExpression, string trimmed)
     {
         Span<OpeningRule> rules = stackalloc OpeningRule[8];
@@ -645,6 +657,7 @@ public sealed class OpenHours
         return false;
     }
 
+    [SkipLocalsInit]
     private static TimeWindow[] Bake(ReadOnlySpan<OpeningRule> rules)
     {
         Span<TimeWindow> openBuf = stackalloc TimeWindow[32];
@@ -754,6 +767,7 @@ public sealed class OpenHours
         }
     }
 
+    [SkipLocalsInit]
     private static int SubtractInPlace(Span<TimeWindow> source, int sourceCount, Span<TimeWindow> subtrahends)
     {
         int subCount = MergeInPlace(subtrahends);
@@ -848,12 +862,12 @@ public sealed class OpenHours
         }
 
         var (t, subMinuteTicks) = GetWeekMinute(from);
-        int[] tbl = EnsureTbl();
-        if ((_bitmask[t >> 6] & (1UL << (t & 63))) != 0)
+        int e = EnsureTbl()[t];
+        if ((e & TblOpenBit) != 0)
         {
             return TimeSpan.Zero;
         }
-        return new TimeSpan((long)tbl[t] * TimeSpan.TicksPerMinute - subMinuteTicks);
+        return new TimeSpan((long)(e & (TblOpenBit - 1)) * TimeSpan.TicksPerMinute - subMinuteTicks);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -938,9 +952,9 @@ public sealed class OpenHours
         }
 
         var (t, subMinuteTicks) = GetWeekMinute(dt);
-        int[] tbl = EnsureTbl();
-        bool open = (_bitmask[t >> 6] & (1UL << (t & 63))) != 0;
-        return (open, new TimeSpan((long)tbl[t] * TimeSpan.TicksPerMinute - subMinuteTicks));
+        int e = EnsureTbl()[t];
+        bool open = (e & TblOpenBit) != 0;
+        return (open, new TimeSpan((long)(e & (TblOpenBit - 1)) * TimeSpan.TicksPerMinute - subMinuteTicks));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -950,18 +964,24 @@ public sealed class OpenHours
         return (isOpen, dt.AddTicks(dur.Ticks));
     }
 
-    // Lazily built per-minute transition table: tbl[m] = minutes from minute m
-    // to the next schedule boundary. A pure function of _windows, so results are
-    // bit-identical; built on first query so parse-only schedules (the stress
-    // benchmark) pay nothing for it.
-    private int[]? _tbl;
+    // Lazily built per-minute transition table, packed to ushort so the old
+    // int[10080] footprint (40 KB/instance) drops to 20 KB, and published with
+    // Volatile.Write. tbl[m] = (open << 15) | minutes-to-next-transition, so a
+    // single 16-bit load answers both the open flag and the distance (the value
+    // is always 1..10080 < 2^15). That removes the extra bitmask load the old
+    // code needed alongside the table, and the Volatile fence removes the
+    // weak-memory publication hazard of the former plain _tbl field on interned,
+    // thread-shared instances.
+    private const int TblOpenBit = 0x8000;
+    private ushort[]? _tbl;
 
-    private int[] EnsureTbl()
+    private ushort[] EnsureTbl()
     {
-        var cached = _tbl;
-        if (cached != null) return cached;
+        var cached = Volatile.Read(ref _tbl);
+        if (cached is not null) return cached;
+
         int n = _windows.Length;
-        var t = new int[MinutesPerWeek];
+        var tbl = new ushort[MinutesPerWeek];
         for (int i = 0; i < n; i++)
         {
             int s0 = _windows[i].Start, e0 = _windows[i].End;
@@ -970,21 +990,24 @@ public sealed class OpenHours
             {
                 blockEnd = MinutesPerWeek + _windows[0].End;
             }
-            for (int m = s0; m < e0; m++) t[m] = blockEnd - m;
+            for (int m = s0; m < e0; m++) tbl[m] = (ushort)(TblOpenBit | (blockEnd - m));
         }
         for (int i = 0; i + 1 < n; i++)
         {
             int a = _windows[i].End, b = _windows[i + 1].Start;
-            for (int m = a; m < b; m++) t[m] = b - m;
+            for (int m = a; m < b; m++) tbl[m] = (ushort)(b - m);
         }
         if (n > 0)
         {
             int a = _windows[n - 1].End, b = _windows[0].Start;
-            for (int m = a; m < MinutesPerWeek; m++) t[m] = (MinutesPerWeek - m) + b;
-            for (int m = 0; m < b; m++) t[m] = b - m;
+            for (int m = a; m < MinutesPerWeek; m++) tbl[m] = (ushort)((MinutesPerWeek - m) + b);
+            for (int m = 0; m < b; m++) tbl[m] = (ushort)(b - m);
         }
-        _tbl = t;
-        return t;
+
+        // Idempotent publish with release semantics: concurrent builders compute
+        // identical contents, so whichever store wins is correct.
+        Volatile.Write(ref _tbl, tbl);
+        return tbl;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1048,6 +1071,7 @@ public sealed class OpenHoursJsonConverter : JsonConverter<OpenHours>
     [ThreadStatic]
     private static OpenHours? _fastJsonVal;
 
+    [SkipLocalsInit]
     public override OpenHours? Read(
         ref Utf8JsonReader reader,
         Type typeToConvert,
