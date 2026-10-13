@@ -48,10 +48,29 @@ public sealed class OpenHours
         _bitmask = bitmask;
     }
 
+    // A single thread-local holder bundles the "last UTF-8 JSON payload seen on
+    // this thread" memo (raw bytes + length + decoded instance) so a repeated
+    // payload costs one ThreadStatic read instead of three separate ones.
+    private sealed class JsonCache
+    {
+        public byte[] Bytes = [];
+        public int Len;
+        public OpenHours? Val;
+    }
+
+    // The string-keyed parse memo. Bundling the key and value into one
+    // thread-local struct keeps the hot lookup down to a single ThreadStatic
+    // read (one TLS access, then register compares).
+    private struct FastEntry
+    {
+        public string? Key;
+        public OpenHours? Val;
+    }
+
     [ThreadStatic]
-    private static string? _fastKey;
+    private static FastEntry _fastEntry;
     [ThreadStatic]
-    private static OpenHours? _fastVal;
+    private static JsonCache? _fastJson;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static OpenHours From(string? expression) => Parse(expression);
@@ -68,9 +87,10 @@ public sealed class OpenHours
             return _empty;
         }
 
-        if (ReferenceEquals(_fastKey, expression) || _fastKey == expression)
+        var e = _fastEntry;
+        if (ReferenceEquals(e.Key, expression) || e.Key == expression)
         {
-            return _fastVal!;
+            return e.Val!;
         }
 
         return ParseStringSlow(expression);
@@ -86,8 +106,7 @@ public sealed class OpenHours
 
         if (_internPool.TryGetValue(expression, out var cached))
         {
-            _fastKey = expression;
-            _fastVal = cached;
+            _fastEntry = new FastEntry { Key = expression, Val = cached };
             return cached;
         }
 
@@ -111,13 +130,11 @@ public sealed class OpenHours
         {
             if (_internPool.TryGetValue(expression, out var existing))
             {
-                _fastKey = expression;
-                _fastVal = existing;
+                _fastEntry = new FastEntry { Key = expression, Val = existing };
                 return existing;
             }
         }
-        _fastKey = expression;
-        _fastVal = result;
+        _fastEntry = new FastEntry { Key = expression, Val = result };
         _internPool.TryAdd(expression, result);
         return result;
     }
@@ -166,18 +183,10 @@ public sealed class OpenHours
         return result;
     }
 
-    // Thread-local memo of the last UTF-8 JSON string payload that was successfully
-    // decoded, stored as the raw escape-free bytes. A repeated payload (the common
-    // bulk-deserialize pattern) is recognised with a single vectorised span compare
-    // and returns the already-interned instance, skipping the escape scan, the
-    // UTF-8 -> UTF-16 transcode and the intern-pool lookup entirely.
-    [ThreadStatic]
-    private static byte[]? _fastUtf8;
-    [ThreadStatic]
-    private static int _fastUtf8Len;
-    [ThreadStatic]
-    private static OpenHours? _fastUtf8Val;
-
+    // The UTF-8 decode memo (last payload bytes + decoded instance) lives in the
+    // same thread-local FastCache holder as the parse memo so a repeated payload
+    // costs a single ThreadStatic read plus one vectorised span compare, skipping
+    // the escape scan, the UTF-8 -> UTF-16 transcode and the intern-pool lookup.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static OpenHours? DecodeJson(ReadOnlySpan<byte> utf8Json)
     {
@@ -190,8 +199,9 @@ public sealed class OpenHours
                 return _empty;
             }
 
-            if (len == _fastUtf8Len && _fastUtf8Val is { } cached
-                && inner.SequenceEqual(_fastUtf8.AsSpan(0, len)))
+            var f = _fastJson;
+            if (f is not null && len == f.Len && f.Val is { } cached
+                && inner.SequenceEqual(f.Bytes.AsSpan(0, len)))
             {
                 return cached;
             }
@@ -204,11 +214,11 @@ public sealed class OpenHours
                     chars[i] = (char)inner[i];
                 }
                 var parsed = Parse(chars);
-                _fastKey = parsed.Raw;
-                _fastVal = parsed;
-                _fastUtf8 = inner.ToArray();
-                _fastUtf8Len = len;
-                _fastUtf8Val = parsed;
+                _fastEntry = new FastEntry { Key = parsed.Raw, Val = parsed };
+                var fc = _fastJson ??= new JsonCache();
+                fc.Bytes = inner.ToArray();
+                fc.Len = len;
+                fc.Val = parsed;
                 return parsed;
             }
         }
@@ -968,7 +978,7 @@ public sealed class OpenHours
     private int FindFirstWindowStartingAtOrAfter(int t)
     {
         int n = _windows.Length;
-        if (n <= 4)
+        if (n <= 16)
         {
             for (int i = 0; i < n; i++)
             {
